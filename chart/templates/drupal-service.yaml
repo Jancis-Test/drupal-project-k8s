@@ -15,6 +15,13 @@ metadata:
       prefix: /
       service: {{ .Release.Name }}-drupal.{{ .Release.Namespace }}.svc.cluster.local:80
       timeout_ms: 30000
+      ---
+      apiVersion: ambassador/v0
+      kind: Mapping
+      name: {{ .Release.Name }}-robots
+      host: {{ template "drupal.domain" . }}
+      prefix: /robots.txt
+      service: silta.wdr.io
 spec:
   type: NodePort
   ports:

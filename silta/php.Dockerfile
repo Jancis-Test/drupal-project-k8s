@@ -4,5 +4,8 @@ FROM amazeeio/php:7.3-fpm
 # Add the mysql client, we need it to check the connection to the database.
 RUN apk add mysql-client
 
+# Add composer executables to our path.
+ENV PATH="/app/vendor/bin:${PATH}"
+
 COPY --chown=www-data:www-data . /app
 

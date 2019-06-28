@@ -1,6 +1,10 @@
 # Dockerfile for the Drupal container.
 FROM amazeeio/php:7.3-fpm
 
+RUN apk add --update --no-cache bash
+
+ENV DRUSH_LAUNCHER_VERSION=0.6.0
+
 RUN set -ex; \
     # Install mysql client
     apk add mysql-client; \
@@ -10,10 +14,10 @@ RUN set -ex; \
     mv drush.phar /usr/local/bin/drush; \
     \
     # Create directory for shared files
-    mkdir -p -m +w /var/www/html/web/sites/default/files; \
-    mkdir -p -m +w /var/www/html/private; \
-    mkdir -p -m +w /var/www/html/reference-data; \
-    chown -R www-data:www-data /var/www/html
+    mkdir -p -m +w /app/web/sites/default/files; \
+    mkdir -p -m +w /app/private; \
+    mkdir -p -m +w /app/reference-data; \
+    chown -R www-data:www-data /app
 
 # Add composer executables to our path.
 ENV PATH="/app/vendor/bin:${PATH}"

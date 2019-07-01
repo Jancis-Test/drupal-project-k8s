@@ -29,10 +29,10 @@ ports:
 
 {{- define "drupal.volumeMounts" -}}
 - name: drupal-public-files
-  mountPath: /var/www/html/web/sites/default/files
+  mountPath: /app/web/sites/default/files
 {{- if .Values.privateFiles.enabled }}
 - name: drupal-private-files
-  mountPath: /var/www/html/private
+  mountPath: /app/private
 {{- end }}
 - name: php-conf
   mountPath: /etc/php7/php.ini
@@ -111,7 +111,7 @@ imagePullSecrets:
 {{- end }}
 {{- if .Values.privateFiles.enabled }}
 - name: PRIVATE_FILES_PATH
-  value: '/var/www/html/private'
+  value: '/app/private'
 {{- end }}
 {{- end }}
 
@@ -144,7 +144,7 @@ done
 
 {{- define "drupal.wait-for-ref-fs-command" }}
 TIME_WAITING=0
-until touch /var/www/html/reference-data/_fs-test; do
+until touch /app/reference-data/_fs-test; do
   echo "Waiting for reference-data fs..."; sleep 2
   TIME_WAITING=$((TIME_WAITING+2))
 
@@ -153,11 +153,11 @@ until touch /var/www/html/reference-data/_fs-test; do
     exit 1
   fi
 done
-rm /var/www/html/reference-data/_fs-test
+rm /app/reference-data/_fs-test
 {{- end }}
 
 {{- define "drupal.deployment-in-progress-test" -}}
--f /var/www/html/web/sites/default/files/_deployment
+-f /app/web/sites/default/files/_deployment
 {{- end -}}
 
 {{- define "drupal.post-release-command" -}}
@@ -170,9 +170,9 @@ set -e
 {{ include "drupal.wait-for-db-command" . }}
 
 {{ if .Release.IsInstall }}
-touch /var/www/html/web/sites/default/files/_deployment
+touch /app/web/sites/default/files/_deployment
 {{ .Values.php.postinstall.command}}
-rm /var/www/html/web/sites/default/files/_deployment
+rm /app/web/sites/default/files/_deployment
 {{ else }}
 {{ .Values.php.postupgrade.command}}
 {{ end }}

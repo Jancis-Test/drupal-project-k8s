@@ -48,7 +48,7 @@ spec:
           name: drupal
         volumeMounts:
         - name: drupal-public-files
-          mountPath: /var/www/html/web/sites/default/files
+          mountPath: /app/web/sites/default/files
           readOnly: true
         - name: nginx-conf
           mountPath: /etc/nginx/nginx.conf # mount nginx-conf configmap volume to /etc/nginx

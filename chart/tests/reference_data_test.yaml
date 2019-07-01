@@ -30,7 +30,7 @@ tests:
         path: spec.template.spec.containers[0].volumeMounts
         content:
           name: "reference-data-volume"
-          mountPath: "/var/www/html/reference-data"
+          mountPath: "/app/reference-data"
           readOnly: true
 
   - it: is not mounted on the main deployment
@@ -47,7 +47,7 @@ tests:
         path: spec.template.spec.containers[0].volumeMounts
         content:
           name: "reference-data-volume"
-          mountPath: "/var/www/html/reference-data"
+          mountPath: "/app/reference-data"
             
   - it: takes reference data information
     set:
@@ -108,7 +108,7 @@ tests:
         path: spec.template.spec.containers[0].volumeMounts
         content:
           name: "reference-data-volume"
-          mountPath: "/var/www/html/reference-data"
+          mountPath: "/app/reference-data"
 
   - it: can be disabled
     set:
@@ -133,4 +133,4 @@ tests:
         path: spec.template.spec.containers[0].volumeMounts
         content:
           name: "reference-data-volume"
-          mountPath: "/var/www/html/reference-data"  
+          mountPath: "/app/reference-data"

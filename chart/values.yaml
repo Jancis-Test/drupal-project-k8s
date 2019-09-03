@@ -277,7 +277,7 @@ mariadb:
         memory: 128M
 
 varnish:
-  enabled: false
+  enabled: true
   resources:
     requests:
       cpu: 50m

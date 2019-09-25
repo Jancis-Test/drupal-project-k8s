@@ -19,25 +19,30 @@ spec:
       containers:
       - name: post-release
         {{- include "drupal.php-container" . | nindent 8 }}
-        command: ["/bin/sh", "-c"]
+        command: ["/bin/bash", "-c"]
         args:
         - {{ include "drupal.post-release-command" . | quote }}
         volumeMounts:
           {{- include "drupal.volumeMounts" . | nindent 10 }}
           {{- if .Values.referenceData.enabled }}
+          {{- if or (eq .Values.referenceData.referenceEnvironment .Values.environmentName) (not .Values.referenceData.skipMount) }}
           - name: reference-data-volume
-            mountPath: /var/www/html/reference-data
+            mountPath: /app/reference-data
             {{- if ne .Values.referenceData.referenceEnvironment .Values.environmentName }}
             readOnly: true
             {{- end }}
+          {{- end -}}
           {{- end }}
         resources:
           {{- .Values.php.postinstall.resources | toYaml | nindent 10 }}
       {{- include "drupal.imagePullSecrets" . | nindent 6 }}
       volumes:
         {{- include "drupal.volumes" . | nindent 8 }}
-        {{- if .Values.referenceData.enabled }}
+
+        {{- if .Values.referenceData.enabled -}}
+        {{- if or (eq .Values.referenceData.referenceEnvironment .Values.environmentName) (not .Values.referenceData.skipMount) }}
         - name: reference-data-volume
           persistentVolumeClaim:
             claimName: {{ include "drupal.referenceEnvironment" . }}-reference-data
-        {{- end }}
+        {{- end -}}
+        {{- end -}}

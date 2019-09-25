@@ -18,12 +18,6 @@ spec:
         {{- include "drupal.release_labels" . | nindent 8 }}
         deployment: drupal
     spec:
-      initContainers:
-      - name: wait-for-db
-        {{ include "drupal.php-container" . | nindent 8 }}
-        command: ["/bin/sh", "-c"]
-        args:
-        - {{ include "drupal.wait-for-db-command" . | quote }}
       containers:
       # php-fpm container.
       - name: php
@@ -35,7 +29,8 @@ spec:
             port: 9000
         readinessProbe:
           exec:
-            command: ['/bin/sh', '-c', 'if [ {{ include "drupal.deployment-in-progress-test" . }} ]; then exit 1; fi']
+            # Prevent coming in during the installation process.
+            command: ['/bin/bash', '-c', 'if [ {{ include "drupal.installation-in-progress-test" . }} ]; then exit 1; fi']
         resources:
           {{- .Values.php.resources | toYaml | nindent 10 }}
 
@@ -47,9 +42,13 @@ spec:
         - containerPort: 80
           name: drupal
         volumeMounts:
-        - name: drupal-public-files
-          mountPath: /var/www/html/web/sites/default/files
+        {{- range $index, $mount := $.Values.mounts }}
+        {{- if eq $mount.enabled true }}
+        - name: drupal-{{ $index }}
+          mountPath: {{ $mount.mountPath }}
           readOnly: true
+        {{- end }}
+        {{- end }}
         - name: nginx-conf
           mountPath: /etc/nginx/nginx.conf # mount nginx-conf configmap volume to /etc/nginx
           readOnly: true
@@ -58,6 +57,13 @@ spec:
           mountPath: /etc/nginx/conf.d/drupal.conf # mount nginx-conf configmap volume to /etc/nginx
           readOnly: true
           subPath: drupal_conf
+        {{- if .Values.nginx.extraConfig }}
+        - name: nginx-extra-conf
+          # provide empty configuration file in /etc/nginx/conf.d for users to populate
+          mountPath: /etc/nginx/conf.d/misc.conf
+          readOnly: true
+          subPath: 'misc.conf'
+        {{- end }}  
         {{- if .Values.nginx.basicauth.enabled }}
         - name: nginx-basicauth
           mountPath: /etc/nginx/.htaccess
@@ -80,6 +86,14 @@ spec:
                 path: nginx_conf
               - key: drupal_conf
                 path: drupal_conf
+        {{- if .Values.nginx.extraConfig }}
+        - name: nginx-extra-conf
+          configMap:
+            name: {{ .Release.Name }}-nginx-extra-conf
+            items:
+            - key: config
+              path: misc.conf
+        {{- end }}
         {{- if .Values.nginx.basicauth.enabled }}
         - name: nginx-basicauth
           secret:
@@ -89,3 +103,21 @@ spec:
                 path: .htaccess
         {{- end }}
       {{- include "drupal.imagePullSecrets" . | nindent 6 }}
+---
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-drupal
+  labels:
+    {{- include "drupal.release_labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-drupal
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    {{- toYaml .Values.autoscaling.metrics | nindent 4 }}
+{{- end }}

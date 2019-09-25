@@ -22,21 +22,23 @@ Have a look at the file for details, but in short this is how it works:
 - Install or update our helm chart while passing our custom images as parameters.
 - The helm chart executes the usual drush deployment commands.
 
-## GDPR sanitization
+# Secrets
 
-SQL data dump for developers is parsed with [GDPR Dump](https://github.com/machbarmacher/gdpr-dump) project.
-You can create a `/gdpr.json` file with [Faker](https://packagist.org/packages/fzaninotto/faker) formatters that will allow replacing data as it's dumped from database using `mysqldump` / `drush sql-dump` command.  
+Project can override values and do file encryption using openssl.
+Encryption key has to be identical to the one in circleci context.
 
+Decrypting secrets file:
 ```
-{
-  "users_field_data": {
-    "name": {"formatter": "name"},
-    "pass": {"formatter": "password"},
-    "mail": {"formatter": "email"},
-    "init": {"formatter": "clear"}
-  }
-} 
+openssl enc -d -aes-256-cbc -pbkdf2 -in silta/secrets -out silta/secrets.dec
 ```
-Available formatters listed in [GDPR Dump project documentation](https://github.com/machbarmacher/gdpr-dump#using-gdpr-replacements). 
 
-You can also add extra elements and attributes, like `_cookies`, `_description` or `_purpose` to enrich the Personal Data information. Just make sure it's marked or prefixed so that it does not mess up GDPR dump when it looks for table data replacements.
+Encrypting secrets file:
+```
+openssl aes-256-cbc -pbkdf2 -in silta/secrets.dec -out silta/secrets
+```
+
+Secret values can be attached to circleci `drupal-build-deploy` job like this
+```
+decrypt_files: silta/secrets
+silta_config: silta/silta.yml,silta/secrets
+```

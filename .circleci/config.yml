@@ -23,10 +23,14 @@ workflows:
           # Use a local chart during development.
           chart_name: "./chart"
           chart_repository: ""
+          silta_config: silta/silta.yml
           codebase-build:
             - silta/drupal-composer-install
-            - silta/yarn-install
+            - silta/npm-install-build
           pre-release:
+            - run:
+                name: Add elastic repo for elasticsearch
+                command: helm repo add elastic https://helm.elastic.co
             - run:
                 name: Build local helm dependencies
                 command: helm dependency build ./chart

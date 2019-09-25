@@ -1,7 +1,11 @@
 
 # Main domain of the cluster.
-# If using ambassador, subdomains of this domain will be created automatically for each environment.
+# Subdomains of this domain will be created automatically for each environment.
 clusterDomain: "silta.wdr.io"
+
+# An optional human-readable label for the project, defaults to the repository name.
+# This name is mainly used to create nice subdomains for each environment.
+projectName: ""
 
 # An optional human-readable label for the environment, defaults to the release name.
 # We typically pass the branch name when we build dedicated environments per branch.
@@ -20,8 +24,38 @@ app: drupal
 # Multiple pods make sense for high availability.
 replicas: 1
 
+# Enable autoscaling using HorizontalPodAutoscaler
+# see: https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        targetAverageUtilization: 80
+
 # Domain names that will be mapped to this deployment.
-exposeDomains: []
+# Example of exposing 2 additional domains for this deployment, each with its own certificate
+# Note that the key is only used for documentation purposes.
+# exposeDomains:
+#   - hostname: example.com
+#   - hostname: www.example.com
+#   -   ssl:
+#   -     enabled: true
+#   -     issuer: letsencrypt-staging
+exposeDomains: {}
+
+ssl:
+  # Enable HTTPS for this deployment
+  enabled:  true
+  # Possible issuers: letsencrypt-staging, letsencrypt, selfsigned, custom
+  issuer: letsencrypt
+  # Only when certificate type is custom
+  # ca: ""
+  # key: ""
+  # crt: ""
 
 # These variables are build-specific and should be passed via the --set parameter.
 nginx:
@@ -44,16 +78,23 @@ nginx:
       username: silta
       password: demo
 
-    # Trust X-Forwarded-For from these hosts for getting external IP 
-    realipfrom: 10.0.0.0/8
+  # Trust X-Forwarded-For from these hosts for getting external IP 
+  realipfrom: 10.0.0.0/8
 
-    # Add IP addresses that should be excluded from basicauth
-    noauthips:
-      - 10.0.0.0/8 # GKE internal IPs
+  # Define the internal network access.
+  # These are used below to allow internal access to certain files
+  # from trusted locations while not allowing access from the public internet.
+  # These addreses are also excluded from basicauth.
+  # Note that the key is only used for documentation purposes.
+  noauthips:
+    gke-internal: 10.0.0.0/8
 
   # Robots txt file blocked by default
   robotsTxt:
     allow: false
+
+  # Extra configuration to pass to nginx as a file
+  extraConfig: |
 
 # Configuration for everything that runs in php containers.
 php:
@@ -70,9 +111,11 @@ php:
   # Cron tasks, each of which will be run into a dedicated temporary pod.
   # When overriding this value, make sure to include the `drush cron` command.
   cron:
-    - schedule: '0 * * * *'
+    drupal:
+      # ~ gets replaced with a random digit between 0 and 9 to prevent having all cron jobs at once.
+      schedule: '~ * * * *'
       command: |
-        if drush check-bootstrap; then
+        if [[ "$(drush status --fields=bootstrap)" = *'Successful'* ]] ; then
           drush cron;
         fi
 
@@ -89,18 +132,12 @@ php:
         tar xf reference-data/public_files.tar.gz
 
         drush cr
-        drush updatedb -n
-        if [ -f config/sync/core.extension.yml ]; then
-          drush config-import -n
+        drush updatedb -y
+        if [ -f $DRUPAL_CONFIG_PATH/core.extension.yml ]; then
+          drush config-import -y
         fi
-
-      elif [ -f config/sync/core.extension.yml ]; then
-        echo "Installing Drupal from existing configuration"
-        drush site-install -n config_installer
-
       else
-        echo "No configuration found, installing a plain drupal site"
-        drush site-install -n standard
+        printf "\e[33mNo reference data found, please install Drupal or import a database dump. See release information for instructions.\e[0m\n"
       fi
     resources:
       requests:
@@ -111,9 +148,11 @@ php:
   # This is run every time a new environment is upgraded.
   postupgrade:
     command: |
-      drush updatedb -n
-      if [ -f config/sync/core.extension.yml ]; then
-        drush config-import -n
+      if [[ "$(drush status --fields=bootstrap)" = *'Successful'* ]] ; then
+        drush updatedb -y
+        if [ -f $DRUPAL_CONFIG_PATH/core.extension.yml ]; then
+          drush config-import -y
+        fi
       fi
 
   # Pass additional environment variables to all php containers as key-value pairs.
@@ -123,11 +162,19 @@ php:
   # users to log in. If not provided, a random value will be used.
   hashsalt: "template-hash-salt"
 
+  # Set whether Drupal errors are displayed.
+  # This is a useful override for development environments.
+  errorLevel: "verbose"
+
   # Custom php settings.
   php_ini:
     loglevel: notice # Possible Values: alert, error, warning, notice, debug
     upload_max_filesize: 60M
     post_max_size: 60M
+
+  # Define the location of the Drupal config files relative to the composer root.
+  # This variable is exposed as $DRUPAL_CONFIG_PATH in the container.
+  drupalConfigPath: "config/sync"
 
 
 # Configuration for everything that runs in shell container.
@@ -145,23 +192,25 @@ shell:
     repositoryUrl: 'you need to pass in a value for repositoryUrl to your helm chart'
     apiToken: 'you need to pass in a value for shell.gitAuth.apiToken to your helm chart'
 
-# Configure the volume used for Drupal public files.
-publicFiles:
-  storage: 1Gi
-  storageClassName: silta-shared
-  csiDriverName: csi-rclone
-
-# Configure an optional volume used for Drupal private files.
-privateFiles:
-  enabled: false
-  storage: 1G
-  storageClassName: silta-shared
-  csiDriverName: csi-rclone
+# Configure the dynamically mounted volumes
+mounts:
+  public-files:
+    enabled: true
+    storage: 1G
+    mountPath: /app/web/sites/default/files
+    storageClassName: silta-shared
+    csiDriverName: csi-rclone
+  private-files:
+    enabled: false
+    storage: 1G
+    mountPath: /app/private
+    storageClassName: silta-shared
+    csiDriverName: csi-rclone
 
 # Configure reference data that will be used when creating new environments.
 referenceData:
   enabled: true
-  
+
   # The name of the environment from which reference data will be copied.
   referenceEnvironment: 'master'
 
@@ -173,21 +222,15 @@ referenceData:
 
   # The commands that is executed to export reference data.
   command: |
-    if drush check-bootstrap; then
+    if [[ "$(drush status --fields=bootstrap)" = *'Successful'* ]] ; then
+      # NFS doesn't support replacing files, so we delete them instead.
+      rm -f reference-data/*
 
-      if [ -d vendor/machbarmacher/gdpr-dump ] && [ -f gdpr.json ]; then
+      # Export database dump.
+      drush sql-dump --gzip --result-file ../reference-data/db.sql
 
-        # NFS doesn't support replacing files, so we delete them instead.
-        rm -f reference-data/*
-
-        # Export database dump.
-        drush sql-dump --gzip --result-file ../reference-data/db.sql
-
-        # Export public files.
-        tar cz --exclude=css --exclude=js --exclude=styles -f reference-data/public_files.tar.gz web/sites/default/files/
-      else
-        echo "Reference dumps are only enabled with proper sanitization. Make sure machbarmacher/gdpr-dump is installed and gdpr.json is present in the project root."
-      fi
+      # Export public files.
+      tar cz --exclude=css --exclude=js --exclude=styles -f reference-data/public_files.tar.gz web/sites/default/files/
     else
       echo "Drupal is not installed, skipping reference database dump."
     fi
@@ -196,8 +239,50 @@ referenceData:
   storageClassName: silta-shared
   csiDriverName: csi-rclone
 
+  # Skips mounting the volume outside of the reference environment, only used programmatically.
+  skipMount: false
+
+# Parameters for sanitizing reference data with gdpr-dump.
+# Uses formatters from https://packagist.org/packages/fzaninotto/faker.
+gdprDump:
+  users_field_data:
+    name:
+      formatter: name
+    pass:
+      formatter: password
+    mail:
+      formatter: email
+    init:
+      formatter: clear
+
+backup:
+  # Whether backups should be taken for the current environment.
+  enabled: false
+
+  # Cron schedule when backups should be taken, this is expected to take place daily.
+  # ~ gets replaced with a random digit between 0 and 9 to prevent having all cron jobs at once.
+  schedule: '~ 2 * * *'
+
+  # How many daily backups to preserve.
+  retention: 7
+
+  # If specified, replace environment content with the given backup.
+  restoreId: null
+
+  # Specify how to restore a backup.
+  restoreCommand: |
+    # figure out how to restore
+
+  storage: 10G
+  storageClassName: silta-shared
+  csiDriverName: csi-rclone
+
+  # These tables will have their content ignored from the backups.
+  ignoreTableContent: '(cache|cache_.*)'
+
 # Override the default values of the MariaDB subchart.
 # These settings are optimised for development environments.
+# see: https://github.com/helm/charts/blob/master/stable/mariadb/values.yaml
 mariadb:
   enabled: true
   replication:
@@ -212,19 +297,37 @@ mariadb:
       requests:
         cpu: 50m
         memory: 128M
+      limits:
+        cpu: 200m
+        memory: 512M
+
+varnish:
+  enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+  # https://varnish-cache.org/docs/trunk/users-guide/storage-backends.html
+  storageBackend: 'file,/var/lib/varnish/varnish_storage.bin,512M'
+  # Inject custom code into vcl_recv subroutine
+  vcl_recv_extra: |
 
 elasticsearch:
   enabled: false
-  # Choose versions in https://www.docker.elastic.co/ from "Elasticsearch" list
-  version: 6.5.0
-  heapSize: 256m
+  replicas: 1
+  # The elasticsearch version to use.
+  # imageTag: 7.3.2
+  esJavaOpts: -Xmx256m -Xms256m
   xpack:
     enabled: false
-  persistence:
-    size: 512Mi
+  volumeClaimTemplate:
+    resources.requests.storage: 1Gi
   resources:
     requests:
-      cpu: 25m
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
       memory: 512Mi
 
 # Memcache service overrides
@@ -236,12 +339,21 @@ memcached:
   memcached:
     maxItemMemory: 128
 
-# Configure ambassador for routing inbound traffic. We typically enable ambassador on development 
-# environments, but disable it and instead use a dedicated ingress resource on production; some 
-# providers have limits on the number of dedicated ingress resources available in a cluster. 
-ambassador:
-  enabled: true
-  # Optional configuration arguments for ambassador. 
-  config:
-    prefix: /
-    timeout_ms: 30000
+# Mailhog service overrides
+# see: https://github.com/codecentric/helm-charts/blob/master/charts/mailhog/values.yaml
+mailhog:
+  enabled: false
+  resources:
+    requests:
+      cpu: 5m
+      memory: 10M
+
+# SMTP configuration passed to containers as environment variables (SMTP_ADDRESS, SMTP_PORT, ..)
+smtp:
+  enabled: false
+  # How to Setup SparkPost as your SMTP Relay: https://www.sparkpost.com/blog/setup-sparkpost-smtp-relay/
+  # address: smtp.example.com:25
+  # tls: false
+  # starttls: false
+  # username: ""
+  # password: ""

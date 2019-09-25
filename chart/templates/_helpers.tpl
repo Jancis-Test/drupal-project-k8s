@@ -3,22 +3,6 @@ app: {{ .Values.app | quote }}
 release: {{ .Release.Name }}
 {{- end }}
 
-{{- define "drupal.domain" -}}
-{{ include "drupal.environmentName" . }}.{{ .Release.Namespace }}.{{ .Values.clusterDomain }}
-{{- end -}}
-
-{{- define "drupal.environmentName" -}}
-{{ regexReplaceAll "[^[:alnum:]]" (.Values.environmentName | default .Release.Name) "-" | lower | trunc 50 | trimSuffix "-" }}
-{{- end -}}
-
-{{- define "drupal.referenceEnvironment" -}}
-{{ regexReplaceAll "[^[:alnum:]]" .Values.referenceData.referenceEnvironment "-" | lower | trunc 50 | trimSuffix "-" }}
-{{- end -}}
-
-{{- define "drupal.environment.hostname" -}}
-{{ regexReplaceAll "[^[:alnum:]]" (.Values.environmentName | default .Release.Name) "-" | lower | trunc 50 | trimSuffix "-" }}
-{{- end -}}
-
 {{- define "drupal.php-container" -}}
 image: {{ .Values.php.image | quote }}
 env: {{ include "drupal.env" . }}
@@ -28,11 +12,11 @@ ports:
 {{- end }}
 
 {{- define "drupal.volumeMounts" -}}
-- name: drupal-public-files
-  mountPath: /var/www/html/web/sites/default/files
-{{- if .Values.privateFiles.enabled }}
-- name: drupal-private-files
-  mountPath: /var/www/html/private
+{{- range $index, $mount := $.Values.mounts }}
+{{- if eq $mount.enabled true }}
+- name: drupal-{{ $index }}
+  mountPath: {{ $mount.mountPath }}
+{{- end }}
 {{- end }}
 - name: php-conf
   mountPath: /etc/php7/php.ini
@@ -46,27 +30,37 @@ ports:
   mountPath: /etc/php7/php-fpm.d/www.conf
   readOnly: true
   subPath: www_conf
+{{ if ne $.Template.Name "drupal/templates/backup-cron.yaml" -}}
+- name: gdpr-dump
+  mountPath: /etc/my.cnf.d/gdpr-dump.cnf
+  readOnly: true
+  subPath: gdpr-dump
+{{- end }}
+- name: settings
+  mountPath: /app/web/sites/default/settings.silta.php
+  readOnly: true
+  subPath: settings_silta_php
 {{- end }}
 
 {{- define "drupal.volumes" -}}
-- name: drupal-public-files
+{{- range $index, $mount := $.Values.mounts }}
+{{- if eq $mount.enabled true }}
+- name: drupal-{{ $index }}
   persistentVolumeClaim:
-    claimName: {{ .Release.Name }}-public-files
-{{- if .Values.privateFiles.enabled }}
-- name: drupal-private-files
-  persistentVolumeClaim:
-    claimName: {{ .Release.Name }}-private-files
+    claimName: {{ $.Release.Name }}-{{ $index }}
+{{- end }}
 {{- end }}
 - name: php-conf
   configMap:
     name: {{ .Release.Name }}-php-conf
-    items:
-      - key: php_ini
-        path: php_ini
-      - key: php-fpm_conf
-        path: php-fpm_conf
-      - key: www_conf
-        path: www_conf
+{{ if ne $.Template.Name "drupal/templates/backup-cron.yaml" -}}
+- name: gdpr-dump
+  configMap:
+    name: {{ .Release.Name }}-gdpr-dump
+{{- end }}
+- name: settings
+  configMap:
+    name: {{ .Release.Name }}-settings
 {{- end }}
 
 {{- define "drupal.imagePullSecrets" }}
@@ -76,9 +70,49 @@ imagePullSecrets:
 {{- end }}
 {{- end }}
 
+{{- define "smtp.env" }}
+- name: SMTP_ADDRESS
+  {{- if .Values.mailhog.enabled }}
+  value: "{{ .Release.Name }}-mailhog:1025"
+  {{ else }}
+  value: {{ .Values.smtp.address | quote }}
+  {{- end }}
+- name: SMTP_TLS
+  value: {{ .Values.smtp.tls | default false | quote }}
+- name: SMTP_STARTTLS
+  value: {{ .Values.smtp.starttls | default false | quote }}
+- name: SMTP_USERNAME
+  value: {{ .Values.smtp.username | quote }}
+- name: SMTP_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Release.Name }}-secrets-smtp
+      key: password
+# Duplicate SMTP env variables for ssmtp bundled with amazee php image 
+- name: SSMTP_MAILHUB
+  {{- if .Values.mailhog.enabled }}
+  value: "{{ .Release.Name }}-mailhog:1025"
+  {{ else }}
+  value: {{ .Values.smtp.address | quote }}
+  {{- end }}
+- name: SSMTP_USETLS
+  value: {{ .Values.smtp.tls | default false | quote }}
+- name: SSMTP_USESTARTTLS
+  value: {{ .Values.smtp.starttls | default false | quote }}
+- name: SSMTP_AUTHUSER
+  value: {{ .Values.smtp.username | quote }}
+- name: SSMTP_AUTHPASS
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Release.Name }}-secrets-smtp
+      key: password
+{{- end }}
+
 {{- define "drupal.env" }}
 - name: SILTA_CLUSTER
   value: "1"
+- name: ENVIRONMENT_NAME
+  value: "{{ .Values.environmentName }}"
 {{- if .Values.mariadb.enabled }}
 - name: DB_USER
   value: "{{ .Values.mariadb.db.user }}"
@@ -92,26 +126,44 @@ imagePullSecrets:
       name: {{ .Release.Name }}-mariadb
       key: mariadb-password
 {{- end }}
+- name: ERROR_LEVEL
+  value: {{ .Values.php.errorLevel }}
 {{- if .Values.memcached.enabled }}
 - name: MEMCACHED_HOST
   value: {{ .Release.Name }}-memcached
 {{- end }}
 {{- if .Values.elasticsearch.enabled }}
 - name: ELASTICSEARCH_HOST
-  value: {{ .Release.Name }}-elastic
+  value: {{ .Release.Name }}-es
+{{- end }}
+{{- if or .Values.mailhog.enabled .Values.smtp.enabled }}
+{{ include "smtp.env" . }}
+{{- end}}
+{{- if .Values.varnish.enabled }}
+- name: VARNISH_ADMIN_HOST
+  value: {{ .Release.Name }}-varnish
+- name: VARNISH_ADMIN_PORT
+  value: "6082"
+- name: VARNISH_CONTROL_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Release.Name }}-secrets-varnish
+      key: control_key
 {{- end }}
 - name: HASH_SALT
   valueFrom:
     secretKeyRef:
       name: {{ .Release.Name }}-secrets-drupal
       key: hashsalt
+- name: DRUPAL_CONFIG_PATH
+  value: {{ .Values.php.drupalConfigPath }}
 {{- range $key, $val := .Values.php.env }}
 - name: {{ $key }}
   value: {{ $val | quote }}
 {{- end }}
-{{- if .Values.privateFiles.enabled }}
-- name: PRIVATE_FILES_PATH
-  value: '/var/www/html/private'
+{{- range $index, $mount := $.Values.mounts }}
+- name: {{ regexReplaceAll "[^[:alnum:]]" $index "_" | upper }}_PATH
+  value: {{ $mount.mountPath }}
 {{- end }}
 {{- end }}
 
@@ -119,7 +171,7 @@ imagePullSecrets:
   {{- if .Values.nginx.basicauth.enabled }}
   satisfy any;
   allow 127.0.0.1;
-  {{- range .Values.nginx.basicauth.noauthips }}
+  {{- range .Values.nginx.noauthips }}
   allow {{ . }};
   {{- end }}
   deny all;
@@ -142,37 +194,19 @@ TIME_WAITING=0
 done
 {{- end }}
 
-{{- define "drupal.wait-for-ref-fs-command" }}
-TIME_WAITING=0
-until touch /var/www/html/reference-data/_fs-test; do
-  echo "Waiting for reference-data fs..."; sleep 2
-  TIME_WAITING=$((TIME_WAITING+2))
-
-  if [ $TIME_WAITING -gt 20 ]; then
-    echo "Reference data filesystem timeout"
-    exit 1
-  fi
-done
-rm /var/www/html/reference-data/_fs-test
-{{- end }}
-
-{{- define "drupal.deployment-in-progress-test" -}}
--f /var/www/html/web/sites/default/files/_deployment
+{{- define "drupal.installation-in-progress-test" -}}
+-f /app/web/sites/default/files/_installing
 {{- end -}}
 
 {{- define "drupal.post-release-command" -}}
 set -e
 
-{{- if eq .Values.referenceData.referenceEnvironment .Values.environmentName }}
-{{ include "drupal.wait-for-ref-fs-command" . }}
-{{- end }}
-
 {{ include "drupal.wait-for-db-command" . }}
 
 {{ if .Release.IsInstall }}
-touch /var/www/html/web/sites/default/files/_deployment
+touch /app/web/sites/default/files/_installing
 {{ .Values.php.postinstall.command}}
-rm /var/www/html/web/sites/default/files/_deployment
+rm /app/web/sites/default/files/_installing
 {{ else }}
 {{ .Values.php.postupgrade.command}}
 {{ end }}

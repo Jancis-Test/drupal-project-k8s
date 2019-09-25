@@ -1,21 +1,50 @@
 Your site is available here:
 
+  {{- if .Values.ssl.enabled }}
+  https://{{- template "drupal.domain" . }}
+  {{- else }}
   http://{{- template "drupal.domain" . }}
-  {{- range $index, $domain := .Values.exposeDomains }}
-  {{ $domain }}
   {{- end }}
+  {{- range $index, $domain := .Values.exposeDomains }}
+  {{- if $domain.ssl }}
+  {{- if $domain.ssl.enabled }}
+  https://{{ $domain.hostname }}
+  {{- end }}
+  {{- else }}
+  http://{{ $domain.hostname }}
+  {{- end }}
+  {{- end }}
+
+{{ if .Values.mailhog.enabled -}}
+Mailhog available at:
+
+  http://{{- template "drupal.domain" . }}/mailhog
+  {{- range $index, $domain := .Values.exposeDomains }}
+  http://{{ $domain.hostname }}/mailhog
+  {{- end }}
+{{- end }}
 
 {{ if .Values.nginx.basicauth.enabled -}}
 Basicauth username: {{ .Values.nginx.basicauth.credentials.username }}
 Basicauth password: {{ .Values.nginx.basicauth.credentials.password }}
 {{- end }}
 
-{{- if .Values.shell.enabled }}
-SSH connection:
+{{ if .Values.shell.enabled }}
 
-  ssh www-admin@{{ template "drupal.environment.hostname" . }}-shell.{{ .Release.Namespace }} -J www-admin@ssh.{{ .Values.clusterDomain }}
+SSH connection (limited access through VPN):
 
-SSH connection (alternative):
+  ssh {{ include "drupal.shellHost" . }} -J {{ include "drupal.jumphost" . }}
 
-  ssh www-admin@{{ template "drupal.environment.hostname" . }}-shell.{{ .Release.Namespace }} -o ProxyCommand="ssh -W %h:%p www-admin@ssh.{{ .Values.clusterDomain }}"
-{{- end }}
+Importing a database dump:
+
+  ssh {{ include "drupal.shellHost" . }} -J {{ include "drupal.jumphost" . }} "drush sql-cli" < my_database_dump.sql
+
+{{ range $index, $mount := .Values.mounts -}}
+{{ if eq $mount.enabled true -}}
+Importing files to {{ $index }}:
+
+  rsync -azv -e 'ssh -A -J {{ include "drupal.jumphost" $ }}' local_folder {{ include "drupal.shellHost" $ }}:{{ $mount.mountPath }}
+
+{{ end -}}
+{{ end -}}
+{{- end -}}

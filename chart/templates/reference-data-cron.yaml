@@ -19,8 +19,8 @@ spec:
             volumeMounts:
               {{- include "drupal.volumeMounts" . | nindent 14 }}
               - name: reference-data-volume
-                mountPath: /var/www/html/reference-data
-            command: ["/bin/sh", "-c"]
+                mountPath: /app/reference-data
+            command: ["/bin/bash", "-c"]
             args:
               - {{ .Values.referenceData.command | quote }}
             resources:

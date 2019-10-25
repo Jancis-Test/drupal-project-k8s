@@ -102,6 +102,8 @@ imagePullSecrets:
   value: "1"
 - name: ENVIRONMENT_NAME
   value: "{{ .Values.environmentName }}"
+- name: DOCKER_IMAGE
+  value: "{{ .Values.php.image }}"
 {{- if .Values.mariadb.enabled }}
 - name: DB_USER
   value: "{{ .Values.mariadb.db.user }}"

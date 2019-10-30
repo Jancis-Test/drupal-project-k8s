@@ -2,11 +2,22 @@ version: 2.1
 
 orbs:
   silta: silta/silta@dev:master
+  kaniko-publish: glenjamin/kaniko-publish@0.0.4
+
+jobs:
+  check_and_build_only:
+    executor: kaniko-publish/kaniko
+    steps:
+      - checkout
+      - kaniko-publish/check
+      - kaniko-publish/build_and_push:
+          deploy: false
 
 workflows:
   version: 2
   commit:
     jobs:
+      - check_and_build_only
       - silta/drupal-validate:
           name: validate
           post-validation:
